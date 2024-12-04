@@ -24,3 +24,6 @@ fix_api-*.tar
 
 # Temporary files, for example, from tests.
 /tmp/
+
+# envfiles
+.env*
