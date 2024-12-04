@@ -6,13 +6,9 @@ alias FixApi.Messages.{
   Reject
 }
 
-api_key = "aUku5McuKcxGj9YAN2NnWstOt6eGxR25RxhH76tGTh1FuAdPBQjQt8mZZqI3RLA0"
+api_key = System.fetch_env!("API_KEY")
 
-keys = """
------BEGIN PRIVATE KEY-----
-MC4CAQAwBQYDK2VwBCIEID52EqkguAHFHvfEUFbOZZgOWVFZjYvuPV+AC8zKYjaK
------END PRIVATE KEY-----
-"""
+keys = System.fetch_env!("PRIVATE_KEY")
 [{_, _, private, _, _, _}] =
   keys
   |> :public_key.pem_decode()
@@ -50,11 +46,7 @@ message_func = fn ->
 end
 
 test_signature = fn  ->
-  keys = """
-  -----BEGIN PRIVATE KEY-----
-  MC4CAQAwBQYDK2VwBCIEIIJEYWtGBrhACmb9Dvy+qa8WEf0lQOl1s4CLIAB9m89u
-  -----END PRIVATE KEY-----
-  """
+  keys = System.fetch_env!("PRIVATE_KEY")
   [{_, _, private, _, _, _}] =
     keys
     |> :public_key.pem_decode()
