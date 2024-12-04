@@ -15,7 +15,9 @@ defmodule FixApi.Messages.Logon do
 
   def build() do
     [{_, _, private, _, _, _}] =
-      Application.get_env(:fix_api, :private_key)
+      :fix_api
+      |> Application.get_env(:private_key)
+      |> Base.decode64!()
       |> :public_key.pem_decode()
       |> Enum.map(&:public_key.pem_entry_decode(&1, ""))
 

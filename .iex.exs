@@ -8,7 +8,11 @@ alias FixApi.Messages.{
 
 api_key = System.fetch_env!("API_KEY")
 
-keys = System.fetch_env!("PRIVATE_KEY")
+keys =
+  "PRIVATE_KEY"
+  |> System.fetch_env!()
+  |> Base.decode64!()
+
 [{_, _, private, _, _, _}] =
   keys
   |> :public_key.pem_decode()
@@ -46,7 +50,11 @@ message_func = fn ->
 end
 
 test_signature = fn  ->
-  keys = System.fetch_env!("PRIVATE_KEY")
+  keys =
+    "PRIVATE_KEY"
+    |> System.fetch_env!()
+    |> Base.decode64!()
+  
   [{_, _, private, _, _, _}] =
     keys
     |> :public_key.pem_decode()
