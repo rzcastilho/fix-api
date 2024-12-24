@@ -23,7 +23,8 @@ defmodule FixApi.MixProject do
     [
       {:certifi, "~> 2.13"},
       {:ed25519, "~> 1.4"},
-      {:sweet_xml, "~> 0.7.4"}
+      {:sweet_xml, "~> 0.7.4"},
+      {:timex, "~> 3.7"}
     ]
   end
 end

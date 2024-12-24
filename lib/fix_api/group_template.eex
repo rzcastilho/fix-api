@@ -1,0 +1,8 @@
+group(:<%= group.name %>, required: <%= group.required %>) do<%=
+  for child <- group.children do %>
+<%=
+  case child do %><%
+  {:field, field} -> %>  field_ref(:<%= field.name %>, required: <%= field.required %>)<%
+  {:component, component} -> %>  component_ref(:<%= component.name %>, required: <%= component.required %>)<% end %>
+  <% end %>
+end

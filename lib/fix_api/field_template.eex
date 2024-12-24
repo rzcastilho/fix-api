@@ -1,0 +1,10 @@
+<%= case field do %>
+<% %{allowed_values: []} -> %>
+  field(:<%= field.name %>, number: <%= field.number %>, type: :<%= field.type %>)
+<% _ -> %>
+  field(:<%= field.name %>, number: <%= field.number %>, type: :<%= field.type %>) do
+  <%= for value <- field.allowed_values do %>
+    value("<%= value.enum %>", description: "<%= value.description %>")
+  <% end %>
+  end
+<% end %>

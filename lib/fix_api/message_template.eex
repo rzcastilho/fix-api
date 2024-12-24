@@ -1,0 +1,9 @@
+message(:<%= message.name %>, category: :<%= message.category %>, type: "<%= message.type %>") do<%=
+  for child <- message.children do %>
+<%=
+  case child do %><%
+  {:field, field} -> %>  field_ref(:<%= field.name %>, required: <%= field.required %>)<%
+  {:component, component} -> %>  component_ref(:<%= component.name %>, required: <%= component.required %>)<%
+  {:group, group} -> %>  <%= EEx.eval_file("lib/fix_api/group_template.eex", group: group) %>  
+<% end %><% end %>
+end
