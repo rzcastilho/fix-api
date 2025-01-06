@@ -25,6 +25,16 @@ defmodule FixApi do
     ]
   end
 
+  def test_parse(drop \\ 0, take \\ 1) do
+    examples()
+    |> Enum.drop(drop)
+    |> Enum.take(take)
+    |> Enum.map(&String.replace(&1, "|", <<1>>))
+    |> Enum.map(&FixApi.Descriptor.decode/1)
+    |> Enum.map(&FixApi.Descriptor.group/1)
+    |> Enum.map(&FixApi.Descriptor.validate/1)
+  end
+
   def fields() do
     {:ok, {_, _, response}} =
       :httpc.request(

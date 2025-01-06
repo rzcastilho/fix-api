@@ -2,9 +2,7 @@ defmodule FixApi.DSL do
   alias FixApi.Schemas.{
     Data,
     Component,
-    ComponentRef,
     Field,
-    FieldRef,
     Group,
     Metadata,
     Message
@@ -19,6 +17,8 @@ defmodule FixApi.DSL do
       Module.register_attribute(__MODULE__, :messages, accumulate: true)
 
       import unquote(__MODULE__)
+      import FixApi.Grouper
+      import FixApi.Validator
 
       @before_compile unquote(__MODULE__)
     end
@@ -70,8 +70,10 @@ defmodule FixApi.DSL do
           nil ->
             {:error, "invalid message name"}
 
-          message ->
+          %Message{type: type} = message ->
             message
+            |> init()
+            |> set(msg_type: type)
         end
       end
 
@@ -81,264 +83,31 @@ defmodule FixApi.DSL do
         |> new()
       end
 
+      def group(
+            %Message{
+              metadata: %Metadata{fields: meta_fields},
+              data: %Data{fields: data_fields} = data
+            } = message
+          ) do
+        {_fields, _field_values, grouped_field_values} =
+          Enum.reduce(meta_fields, {@fields, data_fields, []}, &group/2)
+
+        %Message{message | data: %Data{data | fields: grouped_field_values}}
+      end
+
       def validate(
             %Message{
               metadata: %Metadata{fields: meta_fields},
               data: %Data{fields: data_fields} = data
             } = message
           ) do
-        case Enum.reduce(meta_fields, {[], data_fields, []}, &validate/2) do
-          {_, _, []} ->
-            %Message{message | data: %Data{data | valid?: true, errors: []}}
+        errors =
+          meta_fields
+          |> Enum.map(&validate(&1, @fields, data_fields))
+          |> List.flatten()
+          |> Enum.filter(&(&1 != :valid))
 
-          {_, _, errors} ->
-            %Message{message | data: %Data{data | valid?: false, errors: errors}}
-        end
-      end
-
-      def validate(
-            {name, %Group{children: children, required: required, field_list: _group_fields}},
-            {meta_fields, data_fields, errors} = acc
-          ) do
-        case Keyword.pop_first(data_fields, name) do
-          {nil, rest} ->
-            if required == true do
-              {meta_fields, data_fields, errors ++ [{name, "group is required"}]}
-            else
-              acc
-            end
-
-          {value, rest_data_fields} ->
-            case Integer.parse(value) do
-              {number, ""} ->
-                validate_group(children, {meta_fields, rest_data_fields, errors}, number)
-
-              _ ->
-                acc
-            end
-        end
-      end
-
-      def validate(
-            {name, %{ref: :field, required: required} = opts},
-            {meta_fields, data_fields, errors}
-          ) do
-        options =
-          opts
-          |> Map.delete(:ref)
-          |> Map.put(:field, @fields[name])
-
-        field =
-          %FieldRef{name: name}
-          |> Map.merge(options)
-
-        {value, rest_data_fields} = Keyword.pop_first(data_fields, name)
-
-        new_errors =
-          case validate_field(field, value) do
-            :valid ->
-              errors
-
-            error ->
-              errors ++ [error]
-          end
-
-        {meta_fields ++ [field], rest_data_fields, new_errors}
-      end
-
-      def validate(item, acc) do
-        acc
-      end
-
-      def validate_group(children, {_, data, _} = acc, index) when index > 0 do
-        acc_new = Enum.reduce_while(children, acc, &validate_group/2)
-        validate_group(children, acc_new, index - 1)
-      end
-
-      def validate_group(_children, acc, _index) do
-        acc
-      end
-
-      def validate_group(
-            {name, %Group{children: children, required: required, field_list: field_list}},
-            {meta_fields, data_fields, group_fields, errors} = acc
-          ) do
-        case Keyword.pop_first(data_fields, name) do
-          {nil, rest} ->
-            if required == true do
-              {:halt, {meta_fields, data_fields, errors ++ [{name, "group is required"}]}}
-            else
-              {:halt, acc}
-            end
-
-          {value, rest_data_fields} ->
-            case Integer.parse(value) do
-              {number, ""} ->
-                {:cont,
-                 validate_group(
-                   children,
-                   {meta_fields, rest_data_fields, field_list, errors},
-                   number
-                 )}
-
-              _ ->
-                {:halt, acc}
-            end
-        end
-      end
-
-      def validate_group(
-            {name, %{ref: :field, required: required} = opts},
-            {meta_fields, data_fields, group_fields, errors}
-          ) do
-        options =
-          opts
-          |> Map.delete(:ref)
-          |> Map.put(:field, @fields[name])
-
-        field =
-          %FieldRef{name: name}
-          |> Map.merge(options)
-
-        {value, rest_data_fields} = Keyword.pop_first(data_fields, name)
-
-        new_errors =
-          case validate_field(field, value) do
-            :valid ->
-              errors
-
-            error ->
-              errors ++ [error]
-          end
-
-        {:cont, {meta_fields ++ [field], rest_data_fields, group_fields, new_errors}}
-      end
-
-      def validate_group(item, acc) do
-        {:halt, acc}
-      end
-
-      def validate_field(%FieldRef{name: name, required: true}, nil) do
-        {name, "is required"}
-      end
-
-      def validate_field(%FieldRef{name: name, required: false}, nil) do
-        :valid
-      end
-
-      def validate_field(
-            %FieldRef{name: name, field: %Field{type: :boolean, allowed_values: nil}},
-            value
-          ) do
-        if value not in ["Y", "N"] do
-          {name, "must be 'Y' or 'N'"}
-        else
-          :valid
-        end
-      end
-
-      def validate_field(
-            %FieldRef{name: name, field: %Field{type: :char, allowed_values: nil}},
-            value
-          ) do
-        if String.length(value) != 1 do
-          {name, "must have a single character"}
-        else
-          :valid
-        end
-      end
-
-      def validate_field(
-            %FieldRef{name: name, field: %Field{type: :int, allowed_values: nil}},
-            value
-          ) do
-        case Integer.parse(value) do
-          {_number, ""} ->
-            :valid
-
-          _ ->
-            {name, "must be a valid integer"}
-        end
-      end
-
-      def validate_field(
-            %FieldRef{name: name, field: %Field{type: type, allowed_values: nil}},
-            value
-          )
-          when type in [:length, :numingroup, :seqnum] do
-        case Integer.parse(value) do
-          {number, ""} ->
-            if number < 0 do
-              {name, "must be a positive integer"}
-            else
-              :valid
-            end
-
-          _ ->
-            {name, "must be a valid integer"}
-        end
-      end
-
-      def validate_field(
-            %FieldRef{name: name, field: %Field{type: type, allowed_values: nil}},
-            value
-          )
-          when type in [:qty, :price] do
-        case Float.parse(value) do
-          {_number, ""} ->
-            :valid
-
-          _ ->
-            {name, "must be a valid float"}
-        end
-      end
-
-      def validate_field(
-            %FieldRef{name: name, field: %Field{type: :utctimestamp, allowed_values: nil}},
-            value
-          ) do
-        pattern =
-          if Regex.match?(~r/\.[0-9]{1,6}$/, value) do
-            "%Y%m%d-%H:%M:%S.%f"
-          else
-            "%Y%m%d-%H:%M:%S"
-          end
-
-        case Timex.parse(value, pattern, :strftime) do
-          {:ok, _datetime} ->
-            :valid
-
-          {:error, _error} ->
-            {name, "must be a valid utctimestamp format"}
-        end
-      end
-
-      def validate_field(%FieldRef{name: name, field: %Field{allowed_values: nil}}, _value) do
-        :valid
-      end
-
-      def validate_field(
-            %FieldRef{name: name, field: %Field{allowed_values: allowed_values} = field},
-            value
-          ) do
-        values =
-          allowed_values
-          |> Enum.map(fn {enum, _description} -> enum end)
-
-        if value in values do
-          :valid
-        else
-          descriptions =
-            allowed_values
-            |> Enum.map(fn {enum, description} -> "#{enum}: #{description}" end)
-            |> Enum.join(", ")
-
-          {name, "must be one of these [#{descriptions}]"}
-        end
-      end
-
-      def validate_field(_, _) do
-        :not_handled
+        %Message{message | data: %Data{data | valid?: errors == [], errors: errors}}
       end
 
       def decode(message) when is_bitstring(message) do
@@ -363,9 +132,104 @@ defmodule FixApi.DSL do
 
       def encode(%Message{data: %Data{fields: fields}} = message) do
         fields
+        |> Enum.filter(fn
+          {_name, nil} -> false
+          _ -> true
+        end)
         |> Enum.map(fn {name, value} -> "#{@fields[name].tag}=#{value}" end)
         |> Enum.join(@soh)
         |> Kernel.<>(@soh)
+      end
+
+      def init(%Message{metadata: %Metadata{fields: meta_fields}, data: %Data{} = data} = message) do
+        data_fields =
+          meta_fields
+          |> Enum.map(&init/1)
+
+        %Message{message | data: %Data{data | fields: data_fields}}
+      end
+
+      def init({:begin_string, %{ref: :field}}) do
+        %Field{allowed_values: [{value, _description} | _]} = @fields[:begin_string]
+        {:begin_string, value}
+      end
+
+      def init({:sending_time, %{ref: :field}}) do
+        value =
+          DateTime.utc_now()
+          |> Calendar.strftime("%Y%m%d-%H:%M:%S.%f")
+
+        {:sending_time, value}
+      end
+
+      def init({:target_comp_id, %{ref: :field}}) do
+        {:target_comp_id, "SPOT"}
+      end
+
+      def init({name, %{ref: :field}}) do
+        {name, nil}
+      end
+
+      def init({name, %Group{}}) do
+        {name, []}
+      end
+
+      def set(%Message{data: %Data{fields: data_fields} = data} = message, field_values)
+          when is_list(field_values) do
+        new_field_values =
+          Enum.reduce(field_values, data_fields, fn {field, value}, acc ->
+            Keyword.replace(acc, field, value)
+          end)
+
+        %Message{message | data: %Data{data | fields: new_field_values}}
+      end
+
+      def calculate(%Message{data: %Data{fields: data_fields} = data} = message) do
+        Enum.reduce(data_fields, message, &calculate/2)
+      end
+
+      def calculate(
+            {:body_length, _value},
+            %Message{data: %Data{fields: data_fields} = data} = message
+          ) do
+        message_string =
+          data_fields
+          |> Enum.filter(fn {key, _value} ->
+            key not in [:begin_string, :body_length, :check_sum]
+          end)
+          |> Enum.filter(fn
+            {_key, nil} -> false
+            _ -> true
+          end)
+          |> Enum.map(fn {key, value} -> "#{@fields[key].tag}=#{value}" end)
+          |> Enum.join(@soh)
+          |> Kernel.<>(@soh)
+
+        set(message, body_length: String.length(message_string))
+      end
+
+      def calculate({:check_sum, _}, %Message{data: %Data{fields: data_fields} = data} = message) do
+        check_sum =
+          data_fields
+          |> Enum.filter(fn {key, _value} ->
+            key not in [:check_sum]
+          end)
+          |> Enum.filter(fn
+            {_key, nil} -> false
+            _ -> true
+          end)
+          |> Enum.map(fn {key, value} -> "#{@fields[key].tag}=#{value}" end)
+          |> Enum.join(@soh)
+          |> Kernel.<>(@soh)
+          |> String.to_charlist()
+          |> Enum.sum()
+          |> rem(256)
+
+        set(message, check_sum: "#{String.pad_leading("#{check_sum}", 3, "0")}")
+      end
+
+      def calculate(_field, %Message{} = message) do
+        message
       end
     end
   end
@@ -459,6 +323,8 @@ defmodule FixApi.DSL do
       children =
         unquote(block)
         |> to_list()
+        |> Enum.map(&expand(&1, @components))
+        |> List.flatten()
 
       metadata =
         %Metadata{

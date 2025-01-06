@@ -3,12 +3,7 @@ defmodule FixApi.Client do
 
   require Logger
 
-  alias FixApi.MessageParser
-
-  alias FixApi.Messages.{
-    Heartbeat,
-    NewOrderSingle
-  }
+  alias FixApi.Descriptor
 
   def start_link() do
     opts = %{
@@ -37,10 +32,10 @@ defmodule FixApi.Client do
     GenServer.call(__MODULE__, :disconnect)
   end
 
-  def new_order_single(order_type, side, qty, price, symbol, time_in_force) do
+  def new_order_single(cl_ord_id, order_type, side, qty, price, symbol, time_in_force) do
     GenServer.cast(
       __MODULE__,
-      {:new_order_single, order_type, side, qty, price, symbol, time_in_force}
+      {:new_order_single, cl_ord_id, order_type, side, qty, price, symbol, time_in_force}
     )
   end
 
@@ -71,13 +66,25 @@ defmodule FixApi.Client do
   end
 
   def handle_cast(
-        {:new_order_single, order_type, side, qty, price, symbol, time_in_force},
+        {:new_order_single, cl_ord_id, order_type, side, qty, price, symbol, time_in_force},
         %{socket: socket, msg_seq_num: msg_seq_num, sender_comp_id: sender_comp_id} = state
       ) do
     message =
-      (msg_seq_num + 1)
-      |> NewOrderSingle.build(sender_comp_id, order_type, side, qty, price, symbol, time_in_force)
-      |> MessageParser.encode()
+      Descriptor.new(:new_order_single)
+      |> Descriptor.set(
+        msg_seq_num: msg_seq_num + 1,
+        sender_comp_id: sender_comp_id,
+        cl_ord_id: cl_ord_id,
+        ord_type: order_type,
+        side: side,
+        order_qty: qty,
+        price: price,
+        symbol: symbol,
+        time_in_force: time_in_force
+      )
+      |> IO.inspect()
+      |> Descriptor.calculate()
+      |> Descriptor.encode()
 
     send_message(socket, message)
     {:noreply, %{state | msg_seq_num: msg_seq_num + 1}}
@@ -98,17 +105,20 @@ defmodule FixApi.Client do
 
     decoded_message =
       message
-      |> MessageParser.decode()
-      |> Enum.into(%{})
+      |> Descriptor.decode()
+      |> Descriptor.validate()
+      |> IO.inspect()
 
-    if decoded_message[35].value == "1" do
-      send(self(), {:heartbeat, decoded_message[112].value})
+    Logger.debug("Message received: #{decoded_message}")
+
+    if decoded_message.type == "1" do
+      send(self(), {:heartbeat, Keyword.get(decoded_message.data.fields, :test_req_id)})
     end
 
     {:noreply,
      %{
        state
-       | sender_comp_id: decoded_message[56].value
+       | sender_comp_id: Keyword.get(decoded_message.data.fields, :target_comp_id)
      }}
   end
 
@@ -117,9 +127,14 @@ defmodule FixApi.Client do
         %{socket: socket, msg_seq_num: msg_seq_num, sender_comp_id: sender_comp_id} = state
       ) do
     message =
-      (msg_seq_num + 1)
-      |> Heartbeat.build(sender_comp_id, test_req_id)
-      |> MessageParser.encode()
+      Descriptor.new(:heartbeat)
+      |> Descriptor.set(
+        test_req_id: test_req_id,
+        msg_seq_num: msg_seq_num + 1,
+        sender_comp_id: sender_comp_id
+      )
+      |> Descriptor.calculate()
+      |> Descriptor.encode()
 
     send_message(socket, message)
     {:noreply, %{state | msg_seq_num: msg_seq_num + 1}}
