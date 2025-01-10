@@ -1,6 +1,8 @@
 defmodule FixApi.Messages.Logout do
-  use FixApi.Message,
-    msg_type: "5"
+  alias FixApi.Descriptor
 
-  field(:text, 58, :string, false)
+  def request() do
+    :logout
+    |> Descriptor.new()
+  end
 end

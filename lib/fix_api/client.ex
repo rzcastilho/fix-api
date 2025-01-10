@@ -4,6 +4,8 @@ defmodule FixApi.Client do
   require Logger
 
   alias FixApi.Descriptor
+  alias FixApi.Messages.Heartbeat
+  alias FixApi.Schemas.Message
 
   def start_link() do
     opts = %{
@@ -17,7 +19,7 @@ defmodule FixApi.Client do
       ],
       hostname: String.to_charlist(Application.get_env(:fix_api, :hostname)),
       port: Application.get_env(:fix_api, :port),
-      msg_seq_num: 1,
+      msg_seq_num: nil,
       sender_comp_id: nil
     }
 
@@ -32,15 +34,8 @@ defmodule FixApi.Client do
     GenServer.call(__MODULE__, :disconnect)
   end
 
-  def new_order_single(cl_ord_id, order_type, side, qty, price, symbol, time_in_force) do
-    GenServer.cast(
-      __MODULE__,
-      {:new_order_single, cl_ord_id, order_type, side, qty, price, symbol, time_in_force}
-    )
-  end
-
   def send(message) do
-    GenServer.cast(__MODULE__, {:send, message})
+    send(__MODULE__, {:send, message})
   end
 
   def init(opts) do
@@ -62,82 +57,81 @@ defmodule FixApi.Client do
   def handle_call(:disconnect, _from, %{socket: socket} = state) do
     :ssl.close(socket)
     Logger.info("Connection closed.")
-    {:reply, :ok, Map.delete(state, :socket)}
-  end
 
-  def handle_cast(
-        {:new_order_single, cl_ord_id, order_type, side, qty, price, symbol, time_in_force},
-        %{socket: socket, msg_seq_num: msg_seq_num, sender_comp_id: sender_comp_id} = state
-      ) do
-    message =
-      Descriptor.new(:new_order_single)
-      |> Descriptor.set(
-        msg_seq_num: msg_seq_num + 1,
-        sender_comp_id: sender_comp_id,
-        cl_ord_id: cl_ord_id,
-        ord_type: order_type,
-        side: side,
-        order_qty: qty,
-        price: price,
-        symbol: symbol,
-        time_in_force: time_in_force
-      )
-      |> IO.inspect()
-      |> Descriptor.calculate()
-      |> Descriptor.encode()
-
-    send_message(socket, message)
-    {:noreply, %{state | msg_seq_num: msg_seq_num + 1}}
-  end
-
-  def handle_cast({:send, message}, %{socket: socket} = state) do
-    send_message(socket, message)
-    {:noreply, state}
-  end
-
-  def handle_info({:ssl_closed, _info}, state) do
-    Logger.info("Connection closed by server.")
-    {:noreply, Map.delete(state, :socket)}
-  end
-
-  def handle_info({:ssl, _socket, message}, state) do
-    Logger.info("Message received: #{String.replace(message, <<1>>, "|")}")
-
-    decoded_message =
-      message
-      |> Descriptor.decode()
-      |> Descriptor.validate()
-      |> IO.inspect()
-
-    Logger.debug("Message received: #{decoded_message}")
-
-    if decoded_message.type == "1" do
-      send(self(), {:heartbeat, Keyword.get(decoded_message.data.fields, :test_req_id)})
-    end
-
-    {:noreply,
-     %{
-       state
-       | sender_comp_id: Keyword.get(decoded_message.data.fields, :target_comp_id)
-     }}
+    {
+      :reply,
+      :ok,
+      state
+      |> Map.delete(:socket)
+      |> Map.put(:msg_seq_num, nil)
+      |> Map.put(:sender_comp_id, nil)
+    }
   end
 
   def handle_info(
-        {:heartbeat, test_req_id},
+        {:send, message},
+        %{socket: socket, msg_seq_num: nil, sender_comp_id: nil} = state
+      ) do
+    encoded_message =
+      message
+      |> Descriptor.calculate()
+      |> Descriptor.encode()
+
+    send_message(socket, encoded_message)
+    {:noreply, %{state | msg_seq_num: 1, sender_comp_id: message.data.fields[:sender_comp_id]}}
+  end
+
+  def handle_info(
+        {:send, message},
         %{socket: socket, msg_seq_num: msg_seq_num, sender_comp_id: sender_comp_id} = state
       ) do
-    message =
-      Descriptor.new(:heartbeat)
+    encoded_message =
+      message
       |> Descriptor.set(
-        test_req_id: test_req_id,
         msg_seq_num: msg_seq_num + 1,
         sender_comp_id: sender_comp_id
       )
       |> Descriptor.calculate()
       |> Descriptor.encode()
 
-    send_message(socket, message)
+    send_message(socket, encoded_message)
     {:noreply, %{state | msg_seq_num: msg_seq_num + 1}}
+  end
+
+  def handle_info({:ssl_closed, _info}, state) do
+    Logger.info("Connection closed by server.")
+
+    {
+      :noreply,
+      state
+      |> Map.delete(:socket)
+      |> Map.put(:msg_seq_num, nil)
+      |> Map.put(:sender_comp_id, nil)
+    }
+  end
+
+  def handle_info({:ssl, _socket, message}, state) do
+    message
+    |> String.split("8=FIX.4.4", trim: true)
+    |> Enum.map(&Kernel.<>("8=FIX.4.4", &1))
+    |> Enum.map(fn
+      message_split ->
+        Logger.info("Message received: #{String.replace(message_split, <<1>>, "|")}")
+        message_split
+    end)
+    |> Enum.map(&Descriptor.decode/1)
+    |> Enum.map(&Descriptor.validate/1)
+    |> Enum.each(fn
+      %Message{type: "1"} = decoded_message ->
+        Logger.debug("Message received: #{decoded_message}")
+        heartbeat = Heartbeat.request(decoded_message.data.fields[:test_req_id])
+        send(self(), {:send, heartbeat})
+
+      decoded_message ->
+        Logger.debug("Message received: #{decoded_message}")
+    end)
+
+    {:noreply, state}
   end
 
   def send_message(socket, message) do
