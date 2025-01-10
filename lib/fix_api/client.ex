@@ -7,35 +7,20 @@ defmodule FixApi.Client do
   alias FixApi.Messages.Heartbeat
   alias FixApi.Schemas.Message
 
-  def start_link() do
-    opts = %{
-      ssl_options: [
-        :binary,
-        # active: false,
-        verify: :verify_peer,
-        cacertfile: :certifi.cacertfile(),
-        # log_level: :debug,
-        server_name_indication: String.to_charlist(Application.get_env(:fix_api, :sni))
-      ],
-      hostname: String.to_charlist(Application.get_env(:fix_api, :hostname)),
-      port: Application.get_env(:fix_api, :port),
-      msg_seq_num: nil,
-      sender_comp_id: nil
-    }
-
-    GenServer.start_link(__MODULE__, opts, name: __MODULE__)
+  def start_link(opts) do
+    GenServer.start_link(__MODULE__, opts)
   end
 
-  def connect() do
-    GenServer.call(__MODULE__, :connect)
+  def connect(pid) do
+    GenServer.call(pid, :connect)
   end
 
-  def disconnect() do
-    GenServer.call(__MODULE__, :disconnect)
+  def disconnect(pid) do
+    GenServer.call(pid, :disconnect)
   end
 
-  def send(message) do
-    send(__MODULE__, {:send, message})
+  def send_message(pid, message) do
+    send(pid, {:send, message})
   end
 
   def init(opts) do
@@ -77,7 +62,7 @@ defmodule FixApi.Client do
       |> Descriptor.calculate()
       |> Descriptor.encode()
 
-    send_message(socket, encoded_message)
+    do_send_message(socket, encoded_message)
     {:noreply, %{state | msg_seq_num: 1, sender_comp_id: message.data.fields[:sender_comp_id]}}
   end
 
@@ -94,7 +79,7 @@ defmodule FixApi.Client do
       |> Descriptor.calculate()
       |> Descriptor.encode()
 
-    send_message(socket, encoded_message)
+    do_send_message(socket, encoded_message)
     {:noreply, %{state | msg_seq_num: msg_seq_num + 1}}
   end
 
@@ -134,7 +119,7 @@ defmodule FixApi.Client do
     {:noreply, state}
   end
 
-  def send_message(socket, message) do
+  defp do_send_message(socket, message) do
     case :ssl.send(socket, message) do
       :ok ->
         Logger.info("Message sent: #{String.replace(message, <<1>>, "|")}")
