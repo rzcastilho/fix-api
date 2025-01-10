@@ -21,7 +21,7 @@ defmodule FixApi.MixProject do
   # Run "mix help deps" to learn about dependencies.
   defp deps do
     [
-      {:certifi, "~> 2.13"},
+      {:certifi, "~> 2.12.0"},
       {:ed25519, "~> 1.4"},
       {:sweet_xml, "~> 0.7.4"},
       {:timex, "~> 3.7"}
