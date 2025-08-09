@@ -1,5 +1,6 @@
 defmodule FixApi.Messages.NewOrderSingle do
   alias FixApi.Descriptor
+  import FixApi.Helper
 
   @side %{buy: "1", sell: "2"}
 
@@ -12,11 +13,11 @@ defmodule FixApi.Messages.NewOrderSingle do
     :new_order_single
     |> Descriptor.new()
     |> Descriptor.set(
-      cl_ord_id: :crypto.strong_rand_bytes(16) |> Base.encode16(),
+      cl_ord_id: generate_ord_id(),
       ord_type: @ord_type_market,
       symbol: symbol,
       side: @side[side],
-      order_qty: order_qty
+      order_qty: format_qty(order_qty)
     )
   end
 
@@ -24,12 +25,12 @@ defmodule FixApi.Messages.NewOrderSingle do
     :new_order_single
     |> Descriptor.new()
     |> Descriptor.set(
-      cl_ord_id: :crypto.strong_rand_bytes(16) |> Base.encode16(),
+      cl_ord_id: generate_ord_id(),
       ord_type: @ord_type_limit,
       symbol: symbol,
       side: @side[side],
-      order_qty: order_qty,
-      price: price,
+      order_qty: format_qty(order_qty),
+      price: format_price(price),
       time_in_force: time_in_force
     )
   end

@@ -72,6 +72,13 @@ defmodule FixApi.Validator do
   end
 
   def validate_field(
+        %FieldRef{name: _name, field: %Field{type: :int, allowed_values: nil}},
+        value
+      ) when is_integer(value) do
+    :valid
+  end
+
+  def validate_field(
         %FieldRef{name: name, field: %Field{type: :int, allowed_values: nil}},
         value
       ) do
@@ -82,6 +89,14 @@ defmodule FixApi.Validator do
       _ ->
         {name, "must be a valid integer"}
     end
+  end
+
+  def validate_field(
+        %FieldRef{name: _name, field: %Field{type: type, allowed_values: nil}},
+        value
+      )
+      when type in [:length, :numingroup, :seqnum] and is_integer(value) do
+    :valid
   end
 
   def validate_field(
@@ -100,6 +115,14 @@ defmodule FixApi.Validator do
       _ ->
         {name, "must be a valid integer"}
     end
+  end
+
+  def validate_field(
+        %FieldRef{name: _name, field: %Field{type: type, allowed_values: nil}},
+        value
+      )
+      when type in [:qty, :price] and is_float(value) do
+    :valid
   end
 
   def validate_field(

@@ -5,7 +5,7 @@ defmodule FixApi.MixProject do
     [
       app: :fix_api,
       version: "0.1.0",
-      elixir: "~> 1.16",
+      elixir: "~> 1.18",
       start_permanent: Mix.env() == :prod,
       deps: deps()
     ]
@@ -24,7 +24,8 @@ defmodule FixApi.MixProject do
       {:certifi, "~> 2.12.0"},
       {:ed25519, "~> 1.4"},
       {:sweet_xml, "~> 0.7.4"},
-      {:timex, "~> 3.7"}
+      {:timex, "~> 3.7"},
+      {:phoenix_pubsub, "~> 2.1"}
     ]
   end
 end

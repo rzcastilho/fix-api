@@ -1,7 +1,7 @@
 defmodule FixApi.Messages.Logon do
   alias FixApi.Descriptor
 
-  def request() do
+  def request(sender_comp_id) do
     [{_, _, private, _, _, _}] =
       :fix_api
       |> Application.get_env(:private_key)
@@ -14,7 +14,7 @@ defmodule FixApi.Messages.Logon do
       |> Descriptor.new()
       |> Descriptor.set(
         msg_seq_num: 1,
-        sender_comp_id: :crypto.strong_rand_bytes(4) |> Base.encode16(),
+        sender_comp_id: sender_comp_id,
         encrypt_method: 0,
         reset_seq_num_flag: "Y",
         message_handling: 1
